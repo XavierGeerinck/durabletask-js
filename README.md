@@ -14,3 +14,13 @@ Currently the initia version of task.py and client.py have been implemented, lef
 
 - [ ] Implement https://github.com/microsoft/durabletask-python/blob/main/durabletask/worker.py
 - [ ] Add the tests
+
+### Implement
+
+- [] `src/worker/activity-executor.ts`
+- [] `src/worker/executor-methods.ts`
+- [] `src/worker/orchestration-executor.ts`
+
+### Resolve bugs
+
+- [ ] `src/worker/runtime-orchestration-context.ts` currently implements `nextTask`. This should continue execution of a function in a generator. However, Javascript has no native resume functionality and this should be implemented with [infinite looping yields](https://stackoverflow.com/questions/67762588/how-to-pause-and-resume-function-execution-in-javascript).
