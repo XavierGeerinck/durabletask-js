@@ -1,4 +1,5 @@
 import { ActivityContext } from "../task/context/activity-context";
+import { ActivityNotRegisteredError } from "./exception/activity-not-registered-error";
 import { Registry } from "./registry";
 
 export class ActivityExecutor {
@@ -12,7 +13,7 @@ export class ActivityExecutor {
         const fn = this._registry.getActivity(name);
 
         if (!fn) {
-            throw new Error(`Activity function ${name} is not registered`);
+            throw new ActivityNotRegisteredError(`Activity function ${name} is not registered`);
         }
 
         const activityInput = encodedInput ? JSON.parse(encodedInput) : undefined;
