@@ -20,10 +20,12 @@ export class CompletableTask<T> extends Task<T> {
     }
   }
 
-  fail(message: string, details: pb.TaskFailureDetails): void {
+  fail(message: string, details?: pb.TaskFailureDetails): void {
     if (this._isComplete) {
       throw new Error("Task is already completed");
     }
+
+    details = details ?? new pb.TaskFailureDetails();
 
     this._exception = new TaskFailedError(message, details);
     this._isComplete = true;

@@ -34,7 +34,11 @@ export class Registry {
     this._orchestrators[name] = fn;
   }
 
-  getOrchestrator(name: string): TOrchestrator | undefined {
+  getOrchestrator(name?: string): TOrchestrator | undefined {
+    if (!name) {
+      return undefined;
+    }
+
     return this._orchestrators[name];
   }
 

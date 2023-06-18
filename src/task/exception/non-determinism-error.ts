@@ -1,5 +1,5 @@
 export class NonDeterminismError extends Error {
-  constructor() {
-    super();
+  constructor(msg: string) {
+    super(msg);
   }
 }
