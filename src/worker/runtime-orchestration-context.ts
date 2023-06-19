@@ -1,12 +1,13 @@
-import { Task, getName } from "../task";
+import { getName } from "../task";
 import { OrchestrationContext } from "../task/context/orchestration-context";
 import * as pb from "../proto/orchestrator_service_pb";
 import * as ph from "../utils/pb-helper.util";
 import { CompletableTask } from "../task/completable-task";
 import { TActivity } from "../types/activity.type";
 import { TOrchestrator } from "../types/orchestrator.type";
+import { Task } from "../task/task";
 
-export class RuntimeOrchestrationContext implements OrchestrationContext {
+export class RuntimeOrchestrationContext extends OrchestrationContext {
   _generator?: Generator<Task<any>, any, any>;
   _previousTask?: Task<any>;
   _isReplaying: boolean;
@@ -24,6 +25,8 @@ export class RuntimeOrchestrationContext implements OrchestrationContext {
   _saveEvents: any;
 
   constructor(instanceId: string) {
+    super();
+
     this._generator = undefined;
     this._isReplaying = true;
     this._isComplete = false;
@@ -40,30 +43,32 @@ export class RuntimeOrchestrationContext implements OrchestrationContext {
     this._saveEvents = false;
   }
 
-  // get instanceId(): string {
-  //   return this._instanceId;
-  // }
+  get instanceId(): string {
+    return this._instanceId;
+  }
+  get currentUtcDateTime(): Date {
+    return this._currentUtcDatetime;
+  }
+  get isReplaying(): boolean {
+    return this._isReplaying;
+  }
 
-  // get isReplaying(): boolean {
-  //   return this._isReplaying;
-  // }
-
-  // get currentUtcDateTime(): Date {
-  //   return this._currentUtcDatetime;
-  // }
-
-  // set setCurrentUtcDateTime(value: Date) {
-  //   this._currentUtcDatetime = value;
-  // }
-
-  run(generator: Generator<Task<any>, any, any>) {
+  /**
+   * This is the main entry point for the orchestrator. It will run the generator
+   * and return the first task to be executed. It is typically executed from the 
+   * orchestrator executor.
+   * 
+   * @param generator 
+   */
+  async run(generator: Generator<Task<any>, any, any>) {
     this._generator = generator;
 
-    // @todo: do something with this task
-    const task = this._generator.next().value;
+    // TODO: do something with this task
+    // start the generator
+    const { value, done } = await this._generator.next();
 
-    // @todo: check if the task is null?
-    this._previousTask = task;
+    // TODO: check if the task is null?
+    this._previousTask = value;
   }
 
   resume() {
@@ -86,15 +91,18 @@ export class RuntimeOrchestrationContext implements OrchestrationContext {
           // Resume the generator. This will either return a Task or raise StopIteration if it's done.
           // @todo: Should we check for possible infinite loops here?
           // python: next_task = self._generator.send(self._previous_task.get_result())
-          const nextTask = this._generator.send(this._previousTask._result).value;
 
-          if (!(nextTask instanceof Task)) {
+          // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator/next
+          const { done, value } = this._generator.next(this._previousTask._result);
+
+          if (!(value instanceof Task)) {
             throw new Error("The orchestrator generator yielded a non-Task object");
           }
 
-          this._previousTask = nextTask;
+          this._previousTask = value;
 
           // If a completed task was returned, then we can keep running the generator function.
+          // TODO: What about the done from the generator?
           if (!this._previousTask.isComplete) {
             break;
           }
@@ -227,7 +235,7 @@ export class RuntimeOrchestrationContext implements OrchestrationContext {
   }
 
   callSubOrchestrator<TInput, TOutput>(
-    orchestrator: TOrchestrator<TInput, TOutput>,
+    orchestrator: TOrchestrator,
     input?: TInput | undefined,
     instanceId?: string | undefined,
   ): Task<TOutput> {
@@ -282,6 +290,9 @@ export class RuntimeOrchestrationContext implements OrchestrationContext {
     return externalEventTask;
   }
 
+  /**
+   * Orchestrations can be continued as new. This API allows an  orchestration to restart itself from scratch, optionally with a new input.
+   */
   continueAsNewEvent(newInput: any, saveEvents: boolean = false) {
     if (this._isComplete) {
       return;

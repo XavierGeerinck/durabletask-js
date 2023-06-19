@@ -309,11 +309,18 @@ export function isEmpty(v?: StringValue | null): boolean {
   return v == null || v.getValue() === "";
 }
 
-export function getOrchestrationStatusStr(status: pb.OrchestrationStatus): string {
-  const constName = pb.OrchestrationStatus[status];
+/**
+ * Get the orchstration status by the enum value of the status
+ * 
+ * @param status 
+ * @returns 
+ */
+export function getOrchestrationStatusStr(status: number): string {
+  const idx = Object.values(pb.OrchestrationStatus).indexOf(status);
+  const name = Object.keys(pb.OrchestrationStatus)[idx];
 
-  if (constName.startsWith("ORCHESTRATION_STATUS_")) {
-    return constName.slice("ORCHESTRATION_STATUS_".length);
+  if (name?.startsWith("ORCHESTRATION_STATUS_")) {
+    return name.slice("ORCHESTRATION_STATUS_".length);
   }
 
   return "UNKNOWN";

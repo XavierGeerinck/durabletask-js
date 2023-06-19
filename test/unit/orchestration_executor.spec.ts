@@ -4,6 +4,7 @@ import { newExecutionStartedEvent, newOrchestratorStartedEvent } from "../../src
 import { OrchestrationExecutor } from "../../src/worker/orchestration-executor";
 import * as pb from "../../src/proto/orchestrator_service_pb";
 import { Registry } from "../../src/worker/registry";
+import { TOrchestrator } from "../../src/types/orchestrator.type";
 
 // const TEST_LOGGER = shared.get_logger();
 const TEST_INSTANCE_ID = "abc123";
@@ -11,10 +12,10 @@ const TEST_TASK_ID = 42;
 
 describe("Orchestration Executor", () => {
   it("should validate the orchestrator function input population", async () => {
-    const orchestrator = async (ctx: OrchestrationContext, myInput: number) => {
+    const orchestrator: TOrchestrator = async function* (ctx: OrchestrationContext, input: any) {
       // return all orchestrator inputs back as the output
-      return [myInput, ctx.instanceId, ctx.currentUtcDateTime, ctx.isReplaying];
-    }
+      return [input, ctx.instanceId, ctx.currentUtcDateTime, ctx.isReplaying];
+    };
 
     const testInput = 42;
     const registry = new Registry();
@@ -26,7 +27,9 @@ describe("Orchestration Executor", () => {
       newExecutionStartedEvent(name, TEST_INSTANCE_ID, JSON.stringify(testInput))
     ]
     const executor = new OrchestrationExecutor(registry);
-    const actions = executor.execute(TEST_INSTANCE_ID, [], newEvents);
+    const actions = await executor.execute(TEST_INSTANCE_ID, [], newEvents);
+
+    console.log(actions);
 
     const completeAction = getAndValidateSingleCompleteOrchestrationAction(actions);
 

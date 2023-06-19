@@ -1,6 +1,8 @@
 import { OrchestrationContext } from "../task/context/orchestration-context";
+import { Task } from "../task/task";
+import { TOutput } from "./output.type";
 
-export type TOrchestrator<TInput = any, TOutput = any> = (
+export type TOrchestrator = (
   context: OrchestrationContext,
-  input: TInput | undefined,
-) => Promise<TOutput>;
+  input: any
+) => Generator<Task<any>, any, any> | TOutput;

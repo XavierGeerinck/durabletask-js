@@ -1,5 +1,5 @@
-import { Task } from ".";
 import { CompositeTask } from "./composite-task";
+import { Task } from "./task";
 
 /**
  * A task that completes when any of its child tasks complete

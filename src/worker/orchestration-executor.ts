@@ -1,8 +1,9 @@
-import { getNonDeterminismError, getWrongActionNameError, getWrongActionTypeError, isSuspendable } from ".";
+import { getNewEventSummary, getNonDeterminismError, getWrongActionNameError, getWrongActionTypeError, isSuspendable } from ".";
 import * as pb from "../proto/orchestrator_service_pb";
 import { getName } from "../task";
 import { OrchestrationStateError } from "../task/exception/orchestration-state-error";
 import { TOrchestrator } from "../types/orchestrator.type";
+import { enumValueToKey } from "../utils/enum.util";
 import { getOrchestrationStatusStr, isEmpty } from "../utils/pb-helper.util";
 import { OrchestratorNotRegisteredError } from "./exception/orchestrator-not-registered-error";
 import { Registry } from "./registry";
@@ -21,7 +22,7 @@ export class OrchestrationExecutor {
     this._suspendedEvents = [];
   }
 
-  execute(instanceId: string, oldEvents: pb.HistoryEvent[], newEvents: pb.HistoryEvent[]): pb.OrchestratorAction[] {
+  async execute(instanceId: string, oldEvents: pb.HistoryEvent[], newEvents: pb.HistoryEvent[]): Promise<pb.OrchestratorAction[]> {
     if (!newEvents?.length) {
       throw new OrchestrationStateError("The new history event list must have at least one event in it");
     }
@@ -34,16 +35,16 @@ export class OrchestrationExecutor {
       ctx._isReplaying = true;
 
       for (const oldEvent of oldEvents) {
-        this.processEvent(ctx, oldEvent);
+        await this.processEvent(ctx, oldEvent);
       }
 
       // Get new actions by executing newly received events into the orchestrator function
-      const summary = this._getNewEventSummary(newEvents);
+      const summary = getNewEventSummary(newEvents);
       console.info(`${instanceId}: Processing ${newEvents.length} new history event(s): ${summary}`);
       ctx._isReplaying = false;
 
       for (const newEvent of newEvents) {
-        this.processEvent(ctx, newEvent);
+        await this.processEvent(ctx, newEvent);
       }
     } catch (e: any) {
       ctx.setFailed(e.message);
@@ -64,18 +65,24 @@ export class OrchestrationExecutor {
     return actions;
   }
 
-  private processEvent(ctx: RuntimeOrchestrationContext, event: pb.HistoryEvent): void {
+  private async processEvent(ctx: RuntimeOrchestrationContext, event: pb.HistoryEvent): Promise<void> {
     // Check if we are suspended to see if we need to buffer the event until we are resumed
     if (this._isSuspended && isSuspendable(event)) {
+      console.log("Suspended, buffering event")
       this._suspendedEvents.push(event);
       return;
     }
 
     // Process the event type
     try {
-      switch (event.getEventtypeCase()) {
+      const eventType = event.getEventtypeCase();
+      const eventTypeName = enumValueToKey(pb.HistoryEvent.EventtypeCase, eventType);
+
+      console.debug(`Processing event type ${eventTypeName} (${event.getEventtypeCase()})`);
+
+      switch (eventType) {
         case pb.HistoryEvent.EventtypeCase.ORCHESTRATORSTARTED:
-          ctx._currentUtcDatetime = event.getTimestamp().toDate();
+          ctx._currentUtcDatetime = event.getTimestamp()?.toDate();
           break;
         case pb.HistoryEvent.EventtypeCase.EXECUTIONSTARTED:
           {
@@ -83,37 +90,43 @@ export class OrchestrationExecutor {
             const executionStartedEvent = event.getExecutionstarted();
             const fn = this._registry.getOrchestrator(executionStartedEvent ? executionStartedEvent.getName() : undefined);
 
-
             if (!fn) {
               throw new OrchestratorNotRegisteredError(`A '${executionStartedEvent?.getName()}' orchestrator function is not registered`);
             }
 
-            // Deserialize the intput, if any
+            // Deserialize the input, if any
             let input = undefined;
 
-            if (executionStartedEvent?.getInput() && executionStartedEvent.getInput() !== "") {
-              input = JSON.parse(executionStartedEvent.getInput());
+            if (executionStartedEvent?.getInput() && executionStartedEvent?.getInput()?.toString() !== "") {
+              input = JSON.parse(executionStartedEvent.getInput()?.toString() || "{}");
             }
 
             // This does not execute the generator, it creates it
-            const result = fn(ctx, input);
+            // TODO: This currently executes the generator, but it should not
+            const result = await fn(ctx, input);
+
+            // When a generator is passed this is
+            // [object AsyncGenerator]
+            const resultType = result?.toString();
+
+            // Try to extract AsyncGenerator
+            const match = /\[object (\w+)\]/.exec(resultType);
+            const resultTypeName = (match && match[1]) ?? "";
 
             // Check if the result is a generator
-            // TODO: Port this from python to typescript
-            //       can we use IterableIterator and function*?
-            //       https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/function*
-            //       https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Generator 
-            //
-            // if isinstance(result, GeneratorType):
-            //     # Start the orchestrator's generator function
-            //     ctx.run(result)
-            // else:
-            //     # This is an orchestrator that doesn't schedule any tasks
-            //     ctx.set_complete(result, pb.ORCHESTRATION_STATUS_COMPLETED)
+            if (resultTypeName.indexOf("Generator") > -1) {
+              // Start the orchestrator's generator function
+              await ctx.run(result);
+            } else {
+              console.log(`An orchestrator was returned that doesn't schedule any tasks (type = ${resultType})`);
+
+              // This is an orchestrator that doesn't schedule any tasks
+              ctx.setComplete(result, pb.OrchestrationStatus.ORCHESTRATION_STATUS_COMPLETED);
+            }
           }
           break;
-        // This history event cojnfirms that the timer was successfully scheduled. Remove the timerCreated event from the pending action list so we don't schedule it again.
         case pb.HistoryEvent.EventtypeCase.TIMERCREATED:
+          // This history event confirms that the timer was successfully scheduled. Remove the timerCreated event from the pending action list so we don't schedule it again.
           {
             const timerId = event.getEventid();
             const action = ctx._pendingActions[timerId];
@@ -202,7 +215,7 @@ export class OrchestrationExecutor {
             let result;
 
             if (!isEmpty(event.getTaskcompleted()?.getResult())) {
-              result = JSON.parse(event.getTaskcompleted()?.getResult() || "");
+              result = JSON.parse(event.getTaskcompleted()?.getResult()?.toString() || "");
             }
 
             activityTask.complete(result);
@@ -271,7 +284,7 @@ export class OrchestrationExecutor {
             let result;
 
             if (!isEmpty(event.getSuborchestrationinstancecompleted()?.getResult())) {
-              result = JSON.parse(event.getSuborchestrationinstancecompleted()?.getResult() || "");
+              result = JSON.parse(event.getSuborchestrationinstancecompleted()?.getResult()?.toString() || "");
             }
 
             if (subOrchTask) {
@@ -328,7 +341,7 @@ export class OrchestrationExecutor {
               const eventTask = taskList.shift();
 
               if (!isEmpty(event.getEventraised()?.getInput())) {
-                decodedResult = JSON.parse(event.getEventraised()?.getInput() || "");
+                decodedResult = JSON.parse(event.getEventraised()?.getInput()?.toString() || "");
               }
 
               if (eventTask) {
@@ -354,7 +367,7 @@ export class OrchestrationExecutor {
               }
 
               if (!isEmpty(event.getEventraised()?.getInput())) {
-                decodedResult = JSON.parse(event.getEventraised()?.getInput() || "");
+                decodedResult = JSON.parse(event.getEventraised()?.getInput()?.toString() || "");
               }
 
               eventList?.push(decodedResult);
@@ -382,7 +395,7 @@ export class OrchestrationExecutor {
           this._isSuspended = false;
 
           for (const e of this._suspendedEvents) {
-            this.processEvent(ctx, e);
+            await this.processEvent(ctx, e);
           }
 
           this._suspendedEvents = [];
@@ -401,8 +414,7 @@ export class OrchestrationExecutor {
           ctx.setComplete(encodedOutput, pb.OrchestrationStatus.ORCHESTRATION_STATUS_TERMINATED, true);
           break;
         default:
-          const eventType = event.getEventtypeCase();
-          throw new OrchestrationStateError(`Unknown history event type: ${eventType}`);
+          throw new OrchestrationStateError(`Unknown history event type: ${eventTypeName} (value: ${eventType})`);
       }
     } catch (e: any) {
       // except stopiteration as generator stopped

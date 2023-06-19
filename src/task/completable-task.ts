@@ -1,6 +1,6 @@
 import * as pb from "../proto/orchestrator_service_pb";
-import { Task } from ".";
 import { TaskFailedError } from "./exception/task-failed-error";
+import { Task } from "./task";
 
 export class CompletableTask<T> extends Task<T> {
   constructor() {

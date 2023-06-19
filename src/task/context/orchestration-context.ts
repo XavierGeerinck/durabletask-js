@@ -1,6 +1,6 @@
-import { Task } from "..";
 import { TActivity } from "../../types/activity.type";
 import { TOrchestrator } from "../../types/orchestrator.type";
+import { Task } from "../task";
 
 export abstract class OrchestrationContext {
   /**
@@ -63,7 +63,7 @@ export abstract class OrchestrationContext {
    * @returns {Task<TOutput>} A Durable Task that completes when the sub-orchestrator function completes.
    */
   abstract callSubOrchestrator<TInput, TOutput>(
-    orchestrator: TOrchestrator<TInput, TOutput>,
+    orchestrator: TOrchestrator,
     input?: TInput,
     instanceId?: string,
   ): Task<TOutput>;

@@ -2,6 +2,7 @@ import { NonDeterminismError } from "../task/exception/non-determinism-error";
 import * as pb from "../proto/orchestrator_service_pb";
 import { getName } from "../task";
 import { OrchestrationContext } from "../task/context/orchestration-context";
+import { enumValueToKey } from "../utils/enum.util";
 
 
 export function getNonDeterminismError(taskId: number, actionName: string): NonDeterminismError {
@@ -37,14 +38,15 @@ export function getNewEventSummary(newEvents: pb.HistoryEvent[]): string {
     if (!newEvents?.length) {
         return "[]";
     } else if (newEvents.length == 1) {
-        return `[${newEvents[0].getEventtypeCase()}]`;
+        const enumKey = enumValueToKey(pb.HistoryEvent.EventtypeCase, newEvents[0].getEventtypeCase());
+        return `[${enumKey}]`;
     } else {
         let counts = new Map<string, number>();
 
         for (const event of newEvents) {
-            const eventType = event.getEventtypeCase().toString();
-            const count = counts.get(eventType) ?? 0;
-            counts.set(eventType, count + 1);
+            const eventTypeName = enumValueToKey(pb.HistoryEvent.EventtypeCase, event.getEventtypeCase()) ?? "UNKNOWN";
+            const count = counts.get(eventTypeName) ?? 0;
+            counts.set(eventTypeName, count + 1);
         }
 
         return `[${Array.from(counts.entries()).map(([name, count]) => `${name}=${count}`).join(", ")}]`;
@@ -59,14 +61,19 @@ export function getActionSummary(newActions: pb.OrchestratorAction[]): string {
     if (!newActions?.length) {
         return "[]";
     } else if (newActions.length == 1) {
-        return `${newActions[0].getOrchestratoractiontypeCase()}`;
+        const actionType = newActions[0].getOrchestratoractiontypeCase();
+        const actionTypeName = enumValueToKey(pb.OrchestratorAction.OrchestratoractiontypeCase, actionType) ?? "UNKNOWN";
+
+        return actionTypeName;
     } else {
         let counts = new Map<string, number>();
 
         for (const action of newActions) {
-            const actionType = action.getOrchestratoractiontypeCase().toString();
-            const count = counts.get(actionType) ?? 0;
-            counts.set(actionType, count + 1);
+            const actionType = action.getOrchestratoractiontypeCase();
+            const actionTypeName = enumValueToKey(pb.OrchestratorAction.OrchestratoractiontypeCase, actionType) ?? "UNKNOWN";
+
+            const count = counts.get(actionTypeName) ?? 0;
+            counts.set(actionTypeName, count + 1);
         }
 
         return `[${Array.from(counts.entries()).map(([name, count]) => `${name}=${count}`).join(", ")}]`;
@@ -78,5 +85,8 @@ export function getActionSummary(newActions: pb.OrchestratorAction[]): string {
  * @param event 
  */
 export function isSuspendable(event: pb.HistoryEvent): boolean {
-    return ["executionResumed", "executionTerminated"].indexOf(event.getEventtypeCase().toString()) == -1;
+    return [
+        pb.HistoryEvent.EventtypeCase.EXECUTIONRESUMED,
+        pb.HistoryEvent.EventtypeCase.EXECUTIONTERMINATED
+    ].indexOf(event.getEventtypeCase()) == -1;
 }
