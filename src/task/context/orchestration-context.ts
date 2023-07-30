@@ -75,4 +75,12 @@ export abstract class OrchestrationContext {
    * @returns {Task} A Durable Task that completes when the event is received
    */
   abstract waitForExternalEvent(name: string): Task<any>;
+
+  /**
+   * Continue the orchestration execution as a new instance
+   *
+   * @param newInput {any} The new input to use for the new orchestration instance.
+   * @param saveEvents {boolean} A flag indicating whether to add any unprocessed external events in the new orchestration history.
+   */
+  abstract continueAsNew(newInput: any, saveEvents: boolean): void;
 }

@@ -169,7 +169,12 @@ export function newFailureDetails(e: any): pb.TaskFailureDetails {
   const failure = new pb.TaskFailureDetails();
   failure.setErrortype(e.constructor.name);
   failure.setErrormessage(e.message);
-  failure.setStacktrace(e.stack);
+
+  // Construct a google_protobuf_wrappers_pb.StringValue
+  const stringValueStackTrace = new StringValue();
+  stringValueStackTrace.setValue(e.stack.toString());
+  failure.setStacktrace(stringValueStackTrace);
+
   return failure;
 }
 
@@ -311,9 +316,9 @@ export function isEmpty(v?: StringValue | null): boolean {
 
 /**
  * Get the orchstration status by the enum value of the status
- * 
- * @param status 
- * @returns 
+ *
+ * @param status
+ * @returns
  */
 export function getOrchestrationStatusStr(status: number): string {
   const idx = Object.values(pb.OrchestrationStatus).indexOf(status);

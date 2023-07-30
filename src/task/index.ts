@@ -1,5 +1,6 @@
 import { WhenAllTask } from "./when-all-task";
 import { Task } from "./task";
+import { WhenAnyTask } from "./when-any-task";
 
 /**
  * Returns a task that completes when all of the provided tasks complete or when one of the tasks fail
@@ -17,8 +18,8 @@ export function whenAll<T>(tasks: Task<T>[]): WhenAllTask<T> {
  * @param tasks
  * @returns
  */
-export function whenAny(tasks: Task<any>[]): WhenAllTask<any> {
-  return new WhenAllTask(tasks);
+export function whenAny(tasks: Task<any>[]): WhenAnyTask {
+  return new WhenAnyTask(tasks);
 }
 
 /**
@@ -28,6 +29,10 @@ export function whenAny(tasks: Task<any>[]): WhenAllTask<any> {
  * @returns
  */
 export function getName(fn: Function): string {
+  if (!fn) {
+    throw new Error("Cannot infer a name from a null or undefined function. Please provide a name explicitly.");
+  }
+
   const name = fn.name;
 
   if (!name) {

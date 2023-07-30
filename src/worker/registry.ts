@@ -31,9 +31,6 @@ export class Registry {
       throw new Error(`A '${name}' orchestrator already exists.`);
     }
 
-    console.log(`Adding orchestrator with name '${name}'`);
-    console.log("DEBUG - Adding generator with fn", fn)
-
     this._orchestrators[name] = fn;
   }
 

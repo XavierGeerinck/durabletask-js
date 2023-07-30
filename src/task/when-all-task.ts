@@ -12,9 +12,8 @@ export class WhenAllTask<T> extends CompositeTask<T[]> {
     this._failedTasks = 0;
   }
 
-  // @todo: check https://github.com/microsoft/durabletask-python/issues/7
   pendingTasks(): number {
-    return this._tasks.length - this._completedTasks - this._failedTasks;
+    return this._tasks.length - this._completedTasks;
   }
 
   onChildCompleted(task: Task<any>): void {
@@ -24,7 +23,7 @@ export class WhenAllTask<T> extends CompositeTask<T[]> {
 
     this._completedTasks++;
 
-    if (task.isFailed && this._exception) {
+    if (task.isFailed && !this._exception) {
       this._exception = task.getException();
       this._isComplete = true;
     }

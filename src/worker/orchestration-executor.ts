@@ -1,4 +1,10 @@
-import { getNewEventSummary, getNonDeterminismError, getWrongActionNameError, getWrongActionTypeError, isSuspendable } from ".";
+import {
+  getNewEventSummary,
+  getNonDeterminismError,
+  getWrongActionNameError,
+  getWrongActionTypeError,
+  isSuspendable,
+} from ".";
 import * as pb from "../proto/orchestrator_service_pb";
 import { getName } from "../task";
 import { OrchestrationStateError } from "../task/exception/orchestration-state-error";
@@ -6,6 +12,7 @@ import { TOrchestrator } from "../types/orchestrator.type";
 import { enumValueToKey } from "../utils/enum.util";
 import { getOrchestrationStatusStr, isEmpty } from "../utils/pb-helper.util";
 import { OrchestratorNotRegisteredError } from "./exception/orchestrator-not-registered-error";
+import { StopIterationError } from "./exception/stop-iteration-error";
 import { Registry } from "./registry";
 import { RuntimeOrchestrationContext } from "./runtime-orchestration-context";
 
@@ -22,7 +29,11 @@ export class OrchestrationExecutor {
     this._suspendedEvents = [];
   }
 
-  async execute(instanceId: string, oldEvents: pb.HistoryEvent[], newEvents: pb.HistoryEvent[]): Promise<pb.OrchestratorAction[]> {
+  async execute(
+    instanceId: string,
+    oldEvents: pb.HistoryEvent[],
+    newEvents: pb.HistoryEvent[],
+  ): Promise<pb.OrchestratorAction[]> {
     if (!newEvents?.length) {
       throw new OrchestrationStateError("The new history event list must have at least one event in it");
     }
@@ -47,16 +58,19 @@ export class OrchestrationExecutor {
         await this.processEvent(ctx, newEvent);
       }
     } catch (e: any) {
-      ctx.setFailed(e.message);
+      ctx.setFailed(e);
     }
 
     if (!ctx._isComplete) {
       const taskCount = Object.keys(ctx._pendingTasks).length;
       const eventCount = Object.keys(ctx._pendingEvents).length;
       console.log(`${instanceId}: Waiting for ${taskCount} task(s) and ${eventCount} event(s) to complete...`);
-    } else if (ctx._completionStatus && ctx._completionStatus !== pb.OrchestrationStatus.ORCHESTRATION_STATUS_CONTINUED_AS_NEW) {
+    } else if (
+      ctx._completionStatus &&
+      ctx._completionStatus !== pb.OrchestrationStatus.ORCHESTRATION_STATUS_CONTINUED_AS_NEW
+    ) {
       const completionStatusStr = getOrchestrationStatusStr(ctx._completionStatus);
-      console.log(`${instanceId}: Orchestration complete with status ${completionStatusStr}`);
+      console.log(`${instanceId}: Orchestration completed with status ${completionStatusStr}`);
     }
 
     const actions = ctx.getActions();
@@ -68,18 +82,18 @@ export class OrchestrationExecutor {
   private async processEvent(ctx: RuntimeOrchestrationContext, event: pb.HistoryEvent): Promise<void> {
     // Check if we are suspended to see if we need to buffer the event until we are resumed
     if (this._isSuspended && isSuspendable(event)) {
-      console.log("Suspended, buffering event")
+      console.log("Suspended, buffering event");
       this._suspendedEvents.push(event);
       return;
     }
 
+    const eventType = event.getEventtypeCase();
+    const eventTypeName = enumValueToKey(pb.HistoryEvent.EventtypeCase, eventType);
+
+    // console.debug(`DEBUG - Processing event type ${eventTypeName} (${event.getEventtypeCase()})`);
+
     // Process the event type
     try {
-      const eventType = event.getEventtypeCase();
-      const eventTypeName = enumValueToKey(pb.HistoryEvent.EventtypeCase, eventType);
-
-      console.debug(`Processing event type ${eventTypeName} (${event.getEventtypeCase()})`);
-
       switch (eventType) {
         case pb.HistoryEvent.EventtypeCase.ORCHESTRATORSTARTED:
           ctx._currentUtcDatetime = event.getTimestamp()?.toDate();
@@ -88,10 +102,14 @@ export class OrchestrationExecutor {
           {
             // TODO: Check if we already started the orchestration
             const executionStartedEvent = event.getExecutionstarted();
-            const fn = this._registry.getOrchestrator(executionStartedEvent ? executionStartedEvent.getName() : undefined);
+            const fn = this._registry.getOrchestrator(
+              executionStartedEvent ? executionStartedEvent.getName() : undefined,
+            );
 
             if (!fn) {
-              throw new OrchestratorNotRegisteredError(`A '${executionStartedEvent?.getName()}' orchestrator function is not registered`);
+              throw new OrchestratorNotRegisteredError(
+                `A '${executionStartedEvent?.getName()}' orchestrator function is not registered`,
+              );
             }
 
             // Deserialize the input, if any
@@ -102,7 +120,7 @@ export class OrchestrationExecutor {
             }
 
             // This does not execute the generator, it creates it
-            // TODO: This currently executes the generator, but it should not
+            // since we create an async iterator, we await the creation (so we can use await in the generator itself beside yield)
             const result = await fn(ctx, input);
 
             // When a generator is passed this is
@@ -134,9 +152,11 @@ export class OrchestrationExecutor {
             // Delete it
             delete ctx._pendingActions[timerId];
 
+            const isTimerAction = action?.getCreatetimer();
+
             if (!action) {
               throw getNonDeterminismError(timerId, getName(ctx.createTimer));
-            } else if (!action.hasOwnProperty("createTimer")) {
+            } else if (!isTimerAction) {
               const expectedMethodName = getName(ctx.createTimer);
               throw getWrongActionTypeError(timerId, expectedMethodName, action);
             }
@@ -164,7 +184,7 @@ export class OrchestrationExecutor {
             }
 
             timerTask.complete(undefined);
-            ctx.resume();
+            await ctx.resume();
           }
           break;
         // This history event confirms that the activity execution was successfully scheduled. Remove the taskscheduled event from the pending action list so we don't schedule it again.
@@ -174,17 +194,19 @@ export class OrchestrationExecutor {
             const action = ctx._pendingActions[taskId];
             delete ctx._pendingActions[taskId];
 
+            const isScheduleTaskAction = action?.hasScheduletask();
+
             if (!action) {
               throw getNonDeterminismError(taskId, getName(ctx.callActivity));
-            } else if (action.hasOwnProperty("scheduleTask")) {
+            } else if (!isScheduleTaskAction) {
               const expectedMethodName = getName(ctx.callActivity);
               throw getWrongActionTypeError(taskId, expectedMethodName, action);
             } else if (action.getScheduletask()?.getName() != event.getTaskscheduled()?.getName()) {
               throw getWrongActionNameError(
                 taskId,
                 getName(ctx.callActivity),
+                event.getTaskscheduled()?.getName(),
                 action.getScheduletask()?.getName(),
-                action.getScheduletask()?.getName()
               );
             }
           }
@@ -219,7 +241,7 @@ export class OrchestrationExecutor {
             }
 
             activityTask.complete(result);
-            ctx.resume();
+            await ctx.resume();
           }
           break;
         case pb.HistoryEvent.EventtypeCase.TASKFAILED:
@@ -243,8 +265,15 @@ export class OrchestrationExecutor {
               return;
             }
 
-            activityTask.fail(`${ctx._instanceId}: Activity task #${taskId} failed: ${event.getTaskfailed()?.getFailuredetails()?.getErrormessage()}`, event.getTaskfailed()?.getFailuredetails());
-            ctx.resume();
+            activityTask.fail(
+              `${ctx._instanceId}: Activity task #${taskId} failed: ${event
+                .getTaskfailed()
+                ?.getFailuredetails()
+                ?.getErrormessage()}`,
+              event.getTaskfailed()?.getFailuredetails(),
+            );
+
+            await ctx.resume();
           }
           break;
         // This history event confirms that the sub-orcehstration execution was successfully scheduled. Remove the subOrchestrationInstanceCreated event from the pending action list so we don't schedule it again.
@@ -254,17 +283,21 @@ export class OrchestrationExecutor {
             const action = ctx._pendingActions[taskId];
             delete ctx._pendingActions[taskId];
 
+            const isCreateSubOrchestrationAction = action?.hasCreatesuborchestration();
+
             if (!action) {
               throw getNonDeterminismError(taskId, getName(ctx.callSubOrchestrator));
-            } else if (action.hasOwnProperty("createSubOrchestration")) {
+            } else if (!isCreateSubOrchestrationAction) {
               const expectedMethodName = getName(ctx.callSubOrchestrator);
               throw getWrongActionTypeError(taskId, expectedMethodName, action);
-            } else if (action.getCreatesuborchestration()?.getName() != event.getSuborchestrationinstancecreated()?.getName()) {
+            } else if (
+              action.getCreatesuborchestration()?.getName() != event.getSuborchestrationinstancecreated()?.getName()
+            ) {
               throw getWrongActionNameError(
                 taskId,
                 getName(ctx.callSubOrchestrator),
                 action.getCreatesuborchestration()?.getName(),
-                action.getCreatesuborchestration()?.getName()
+                action.getCreatesuborchestration()?.getName(),
               );
             }
           }
@@ -272,7 +305,9 @@ export class OrchestrationExecutor {
         case pb.HistoryEvent.EventtypeCase.SUBORCHESTRATIONINSTANCECOMPLETED:
           {
             const subOrchestrationInstanceCompletedEvent = event.getSuborchestrationinstancecompleted();
-            const taskId = subOrchestrationInstanceCompletedEvent ? subOrchestrationInstanceCompletedEvent.getTaskscheduledid() : undefined;
+            const taskId = subOrchestrationInstanceCompletedEvent
+              ? subOrchestrationInstanceCompletedEvent.getTaskscheduledid()
+              : undefined;
 
             let subOrchTask;
 
@@ -291,13 +326,15 @@ export class OrchestrationExecutor {
               subOrchTask.complete(result);
             }
 
-            ctx.resume();
+            await ctx.resume();
           }
           break;
         case pb.HistoryEvent.EventtypeCase.SUBORCHESTRATIONINSTANCEFAILED:
           {
             const subOrchestrationInstanceFailedEvent = event.getSuborchestrationinstancefailed();
-            const taskId = subOrchestrationInstanceFailedEvent ? subOrchestrationInstanceFailedEvent.getTaskscheduledid() : undefined;
+            const taskId = subOrchestrationInstanceFailedEvent
+              ? subOrchestrationInstanceFailedEvent.getTaskscheduledid()
+              : undefined;
 
             let subOrchTask;
 
@@ -309,15 +346,23 @@ export class OrchestrationExecutor {
             if (!subOrchTask) {
               // TODO: Should this be an error? When would it ever happen?
               if (!ctx._isReplaying) {
-                console.warn(`${ctx._instanceId}: Ignoring unexpected subOrchestrationInstanceFailed event with ID = ${taskId}`);
+                console.warn(
+                  `${ctx._instanceId}: Ignoring unexpected subOrchestrationInstanceFailed event with ID = ${taskId}`,
+                );
               }
 
               return;
             }
 
-            subOrchTask.fail(`${ctx._instanceId}: Sub-orchestration task #${taskId} failed: ${event.getSuborchestrationinstancefailed()?.getFailuredetails()?.getErrormessage()}`, event.getSuborchestrationinstancefailed()?.getFailuredetails());
+            subOrchTask.fail(
+              `${ctx._instanceId}: Sub-orchestration task #${taskId} failed: ${event
+                .getSuborchestrationinstancefailed()
+                ?.getFailuredetails()
+                ?.getErrormessage()}`,
+              event.getSuborchestrationinstancefailed()?.getFailuredetails(),
+            );
 
-            ctx.resume();
+            await ctx.resume();
           }
           break;
         case pb.HistoryEvent.EventtypeCase.EVENTRAISED:
@@ -352,7 +397,7 @@ export class OrchestrationExecutor {
                 delete ctx._pendingEvents[eventName];
               }
 
-              ctx.resume();
+              await ctx.resume();
             } else {
               // Buffer the event
               let eventList: any[] | undefined = [];
@@ -373,7 +418,9 @@ export class OrchestrationExecutor {
               eventList?.push(decodedResult);
 
               if (!ctx._isReplaying) {
-                console.log(`${ctx._instanceId}: Event ${eventName} has been buffered as there are no tasks waiting for it.`);
+                console.log(
+                  `${ctx._instanceId}: Event ${eventName} has been buffered as there are no tasks waiting for it.`,
+                );
               }
             }
           }
@@ -408,7 +455,7 @@ export class OrchestrationExecutor {
           let encodedOutput;
 
           if (!isEmpty(event.getExecutionterminated()?.getInput())) {
-            encodedOutput = event.getExecutionterminated()?.getInput();
+            encodedOutput = event.getExecutionterminated()?.getInput()?.getValue();
           }
 
           ctx.setComplete(encodedOutput, pb.OrchestrationStatus.ORCHESTRATION_STATUS_TERMINATED, true);
@@ -417,8 +464,16 @@ export class OrchestrationExecutor {
           throw new OrchestrationStateError(`Unknown history event type: ${eventTypeName} (value: ${eventType})`);
       }
     } catch (e: any) {
-      // except stopiteration as generator stopped
-      ctx.setComplete(e.message, pb.OrchestrationStatus.ORCHESTRATION_STATUS_COMPLETED);
+      // StopIteration is thrown when the generator is finished and didn't return a task as its next action
+      if (e instanceof StopIterationError) {
+        ctx.setComplete(e.value, pb.OrchestrationStatus.ORCHESTRATION_STATUS_COMPLETED);
+        return;
+      }
+
+      // For the rest we don't do anything
+      // Else we throw it upwards
+      console.error(`Could not process the event ${eventTypeName}`);
+      throw e;
     }
   }
 }
