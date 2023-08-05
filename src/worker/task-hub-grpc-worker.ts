@@ -10,6 +10,9 @@ import { GrpcClient } from "../client-grpc";
 import { promisify } from "util";
 import { Empty } from "google-protobuf/google/protobuf/empty_pb";
 import * as pbh from "../utils/pb-helper.util";
+import { OrchestrationExecutor } from "./orchestration-executor";
+import { ActivityExecutor } from "./activity-executor";
+import { StringValue } from "google-protobuf/google/protobuf/wrappers_pb";
 
 export class TaskHubGrpcWorker {
   private _responseStream: grpc.ClientReadableStream<pb.WorkItem> | null;
@@ -137,7 +140,11 @@ export class TaskHubGrpcWorker {
       const failureDetails = pbh.newFailureDetails(e);
 
       const actions = [
-        pbh.newCompleteOrchestrationAction(-1, pb.OrchestrationStatus.ORCHESTRATION_STATUS_FAILED, failureDetails),
+        pbh.newCompleteOrchestrationAction(
+          -1,
+          pb.OrchestrationStatus.ORCHESTRATION_STATUS_FAILED,
+          failureDetails?.toString(),
+        ),
       ];
 
       res = new pb.OrchestratorResponse();
@@ -167,12 +174,15 @@ export class TaskHubGrpcWorker {
 
     try {
       const executor = new ActivityExecutor(this._registry);
-      const result = await executor.execute(req.getName(), req.getInput());
+      const result = await executor.execute(req.getName(), req.getInput()?.toString() ?? "", req.getTaskid());
+
+      const s = new StringValue();
+      s.setValue(result ?? "");
 
       res = new pb.ActivityResponse();
       res.setInstanceid(instanceId);
       res.setTaskid(req.getTaskid());
-      res.setResult(result);
+      res.setResult(s);
     } catch (e: any) {
       console.error(e);
       console.log(`An error occurred while trying to execute activity '${req.getName()}': ${e.message}`);

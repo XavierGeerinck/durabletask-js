@@ -1,3 +1,4 @@
+import { spawn } from "child_process";
 import { TaskHubGrpcClient } from "../../src/client";
 import { OrchestrationStatus } from "../../src/proto/orchestrator_service_pb";
 import { getName, whenAll, whenAny } from "../../src/task";
@@ -10,16 +11,12 @@ describe("Durable Functions", () => {
   let taskHubClient: TaskHubGrpcClient;
   let taskHubWorker: TaskHubGrpcWorker;
 
-  beforeAll(async () => {
-    // Ensure the sidecar process is running
-    // docker run --name durabletask-sidecar -p 4001:4001 --env 'DURABLETASK_SIDECAR_LOGLEVEL=Debug' --rm cgillum/durabletask-sidecar:latest start --backend Emulator
-    // TODO:
-  });
+  beforeAll(async () => {});
 
   beforeEach(async () => {
     // Start a worker, which will connect to the sidecar in a background thread
     taskHubWorker = new TaskHubGrpcWorker();
-    taskHubClient = new TaskHubGrpcClient();
+    taskHubClient = new TaskHubGrpcClient("localhost:4001");
   });
 
   afterEach(async () => {
