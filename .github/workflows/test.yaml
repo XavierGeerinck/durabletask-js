@@ -23,4 +23,4 @@ jobs:
         run: npm test test/unit
 
       - name: ✅ Run e2e tests
-        run: npm test test/e2e
+        run: ./scripts/test-e2e.sh
