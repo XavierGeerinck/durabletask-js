@@ -66,8 +66,8 @@ export class TaskHubGrpcWorker {
       throw new Error("The worker is already running.");
     }
 
-    // send a "Hello" message to the sidecar to ensure that it's listening
     const stubHello = promisify(stub.hello);
+    console.log(stubHello);
     await stubHello(new Empty());
 
     // Open a stream to get the work items
