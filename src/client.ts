@@ -11,12 +11,22 @@ import { promisify } from "util";
 import { newOrchestrationState } from "./orchestration";
 import { OrchestrationState } from "./orchestration/orchestration-state";
 import { GrpcClient } from "./client-grpc";
+import { OrchestrationStatus } from "./orchestration/enum/orchestration-status.enum";
+import { TimeoutError } from "./exception/timeout-error";
 
 export class TaskHubGrpcClient {
   private _stub: stubs.TaskHubSidecarServiceClient;
 
   constructor(hostAddress: string) {
     this._stub = new GrpcClient(hostAddress).stub;
+  }
+
+  async stop(): Promise<void> {
+    await this._stub.close();
+
+    // Wait a bit to let the async operations finish
+    // https://github.com/grpc/grpc-node/issues/1563#issuecomment-829483711
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   async scheduleNewOrchestration(
@@ -42,7 +52,7 @@ export class TaskHubGrpcClient {
 
     console.log(`Starting new ${name} instance with ID = ${req.getInstanceid()}`);
 
-    const prom = promisify(this._stub.startInstance);
+    const prom = promisify(this._stub.startInstance.bind(this._stub));
     const res = (await prom(req)) as pb.CreateInstanceResponse;
 
     return res.getInstanceid();
@@ -56,7 +66,7 @@ export class TaskHubGrpcClient {
     req.setInstanceid(instanceId);
     req.setGetinputsandoutputs(fetchPayloads);
 
-    const prom = promisify(this._stub.getInstance);
+    const prom = promisify(this._stub.getInstance.bind(this._stub));
     const res = (await prom(req)) as pb.GetInstanceResponse;
 
     return newOrchestrationState(req.getInstanceid(), res);
@@ -71,14 +81,17 @@ export class TaskHubGrpcClient {
     req.setInstanceid(instanceId);
     req.setGetinputsandoutputs(fetchPayloads);
 
-    const prom = promisify(this._stub.waitForInstanceStart);
-
     try {
-      // @todo: set timeout
-      const res = (await prom(req)) as pb.GetInstanceResponse;
+      const prom = promisify(this._stub.waitForInstanceStart.bind(this._stub));
+
+      // Execute the request and wait for the first response or timeout
+      const res = (await Promise.race([
+        prom(req),
+        new Promise((_, reject) => setTimeout(() => reject(new TimeoutError()), timeout * 1000)),
+      ])) as pb.GetInstanceResponse;
+
       return newOrchestrationState(req.getInstanceid(), res);
     } catch (e) {
-      // @todo: handle deadline exceeded error
       console.log(e);
       throw e;
     }
@@ -86,21 +99,43 @@ export class TaskHubGrpcClient {
 
   async waitForOrchestrationCompletion(
     instanceId: string,
-    fetchPayloads: boolean = false,
+    fetchPayloads: boolean = true,
     timeout: number = 60,
   ): Promise<OrchestrationState | undefined> {
     const req = new pb.GetInstanceRequest();
     req.setInstanceid(instanceId);
     req.setGetinputsandoutputs(fetchPayloads);
 
-    const prom = promisify(this._stub.waitForInstanceCompletion);
-
     try {
-      // @todo: set timeout
-      const res = (await prom(req)) as pb.GetInstanceResponse;
-      return newOrchestrationState(req.getInstanceid(), res);
+      console.info(`Waiting ${timeout} seconds for instance ${instanceId} to complete...`);
+
+      const prom = promisify(this._stub.waitForInstanceCompletion.bind(this._stub));
+
+      // Execute the request and wait for the first response or timeout
+      const res = (await Promise.race([
+        prom(req),
+        new Promise((_, reject) => setTimeout(() => reject(new TimeoutError()), timeout * 1000)),
+      ])) as pb.GetInstanceResponse;
+
+      const state = newOrchestrationState(req.getInstanceid(), res);
+
+      if (!state) {
+        return undefined;
+      }
+
+      let details;
+
+      if (state.runtimeStatus === OrchestrationStatus.FAILED && state.failureDetails) {
+        details = state.failureDetails;
+        console.info(`Instance ${instanceId} failed: [${details.errorType}] ${details.message}`);
+      } else if (state.runtimeStatus === OrchestrationStatus.TERMINATED) {
+        console.info(`Instance ${instanceId} was terminated`);
+      } else if (state.runtimeStatus === OrchestrationStatus.COMPLETED) {
+        console.info(`Instance ${instanceId} completed`);
+      }
+
+      return state;
     } catch (e) {
-      // @todo: handle deadline exceeded error
       console.log(e);
       throw e;
     }
@@ -118,7 +153,7 @@ export class TaskHubGrpcClient {
 
     console.log(`Raising event '${eventName}' for instance '${instanceId}'`);
 
-    const prom = promisify(this._stub.raiseEvent);
+    const prom = promisify(this._stub.raiseEvent.bind(this._stub));
     await prom(req);
   }
 
@@ -133,7 +168,7 @@ export class TaskHubGrpcClient {
 
     console.log(`Terminating '${instanceId}'`);
 
-    const prom = promisify(this._stub.terminateInstance);
+    const prom = promisify(this._stub.terminateInstance.bind(this._stub));
     await prom(req);
   }
 
@@ -143,7 +178,7 @@ export class TaskHubGrpcClient {
 
     console.log(`Suspending '${instanceId}'`);
 
-    const prom = promisify(this._stub.suspendInstance);
+    const prom = promisify(this._stub.suspendInstance.bind(this._stub));
     await prom(req);
   }
 
@@ -153,7 +188,7 @@ export class TaskHubGrpcClient {
 
     console.log(`Resuming '${instanceId}'`);
 
-    const prom = promisify(this._stub.resumeInstance);
+    const prom = promisify(this._stub.resumeInstance.bind(this._stub));
     await prom(req);
   }
 }

@@ -1,3 +1,4 @@
+import { isPromise } from "util/types";
 import { ActivityContext } from "../task/context/activity-context";
 import { ActivityNotRegisteredError } from "./exception/activity-not-registered-error";
 import { Registry } from "./registry";
@@ -9,18 +10,27 @@ export class ActivityExecutor {
     this._registry = registry;
   }
 
-  public execute(orchestrationId: string, name: string, taskId: number, encodedInput?: string): string | undefined {
+  public async execute(
+    orchestrationId: string,
+    name: string,
+    taskId: number,
+    encodedInput?: string,
+  ): Promise<string | undefined> {
     const fn = this._registry.getActivity(name);
 
     if (!fn) {
-      throw new ActivityNotRegisteredError(`Activity function ${name} is not registered`);
+      throw new ActivityNotRegisteredError(name);
     }
 
     const activityInput = encodedInput ? JSON.parse(encodedInput) : undefined;
     const ctx = new ActivityContext(orchestrationId, taskId);
 
     // Execute the activity function
-    const activityOutput = fn(ctx, activityInput);
+    let activityOutput = fn(ctx, activityInput);
+
+    if (isPromise(activityOutput)) {
+      activityOutput = await activityOutput;
+    }
 
     // Return the output
     const encodedOutput = activityOutput ? JSON.stringify(activityOutput) : undefined;

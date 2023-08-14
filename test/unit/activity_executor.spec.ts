@@ -17,23 +17,17 @@ describe("Activity Executor", () => {
 
     const activityInput = "Hello, 世界!";
     const [executor, name] = getActivityExecutor(testActivity);
-    const result = await executor.execute(
-      TEST_INSTANCE_ID,
-      name,
-      TEST_TASK_ID,
-      JSON.stringify(activityInput)
-    );
+    const result = await executor.execute(TEST_INSTANCE_ID, name, TEST_TASK_ID, JSON.stringify(activityInput));
     expect(result).not.toBeNull();
 
-    const [resultInput, resultOrchestrationId, resultTaskId] =
-      JSON.parse(result ?? "[]");
+    const [resultInput, resultOrchestrationId, resultTaskId] = JSON.parse(result ?? "[]");
 
     expect(activityInput).toEqual(resultInput);
     expect(TEST_INSTANCE_ID).toEqual(resultOrchestrationId);
     expect(TEST_TASK_ID).toEqual(resultTaskId);
   });
 
-  it("It should raise a worker.ActivityNotRegisteredError exception when attempting to execute an unregistered activity", () => {
+  it("It should raise a worker.ActivityNotRegisteredError exception when attempting to execute an unregistered activity", async () => {
     const testActivity = (ctx: ActivityContext, _: any) => {
       return;
     };
@@ -43,11 +37,13 @@ describe("Activity Executor", () => {
     let caughtException: Error | null = null;
 
     try {
-      executor.execute(TEST_INSTANCE_ID, "Bogus", TEST_TASK_ID, undefined);
+      await executor.execute(TEST_INSTANCE_ID, "Bogus", TEST_TASK_ID, undefined);
     } catch (ex: any) {
+      console.log(ex);
       caughtException = ex;
     }
 
+    console.log(caughtException);
     expect(caughtException?.constructor?.name).toEqual(ActivityNotRegisteredError.name);
     expect(caughtException).not.toBeNull();
     expect(caughtException?.message).toMatch(/Bogus/);

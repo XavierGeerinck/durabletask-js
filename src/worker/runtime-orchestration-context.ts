@@ -47,9 +47,11 @@ export class RuntimeOrchestrationContext extends OrchestrationContext {
   get instanceId(): string {
     return this._instanceId;
   }
+
   get currentUtcDateTime(): Date {
     return this._currentUtcDatetime;
   }
+
   get isReplaying(): boolean {
     return this._isReplaying;
   }
@@ -256,7 +258,7 @@ export class RuntimeOrchestrationContext extends OrchestrationContext {
     // use the instanceId and apprent the id to it in hexadecimal with 4 digits (e.g. 0001)
     if (!instanceId) {
       const instanceIdSuffix = id.toString(16).padStart(4, "0");
-      instanceId = `${instanceId}:${instanceIdSuffix}`;
+      instanceId = `${this._instanceId}:${instanceIdSuffix}`;
     }
 
     const encodedInput = input ? JSON.stringify(input) : undefined;

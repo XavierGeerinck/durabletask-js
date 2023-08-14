@@ -107,9 +107,7 @@ export class OrchestrationExecutor {
             );
 
             if (!fn) {
-              throw new OrchestratorNotRegisteredError(
-                `A '${executionStartedEvent?.getName()}' orchestrator function is not registered`,
-              );
+              throw new OrchestratorNotRegisteredError(executionStartedEvent?.getName());
             }
 
             // Deserialize the input, if any
@@ -461,7 +459,8 @@ export class OrchestrationExecutor {
           ctx.setComplete(encodedOutput, pb.OrchestrationStatus.ORCHESTRATION_STATUS_TERMINATED, true);
           break;
         default:
-          throw new OrchestrationStateError(`Unknown history event type: ${eventTypeName} (value: ${eventType})`);
+          console.info(`Unknown history event type: ${eventTypeName} (value: ${eventType}), skipping...`);
+        // throw new OrchestrationStateError(`Unknown history event type: ${eventTypeName} (value: ${eventType})`);
       }
     } catch (e: any) {
       // StopIteration is thrown when the generator is finished and didn't return a task as its next action
@@ -472,7 +471,7 @@ export class OrchestrationExecutor {
 
       // For the rest we don't do anything
       // Else we throw it upwards
-      console.error(`Could not process the event ${eventTypeName}`);
+      console.error(`Could not process the event ${eventTypeName} due to error ${e}`);
       throw e;
     }
   }

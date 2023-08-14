@@ -10,6 +10,16 @@ Note that this project is **not** currently affiliated with the [Durable Functio
 
 ⚠️ **This SDK is currently under active development and is not yet ready for production use.** ⚠️
 
+## Open Issues
+
+### Not able to fan-out
+
+When running end to end tests and using a fan-out pattern, we get the below
+
+```bash
+2023-17-14T08:17:07.449443Z fail: DurableTask.Sidecar[25] TaskOrchestrationDispatcher-1: Unexpected execute failure for work-item 'undefined:0009': System.ArgumentException: Could not find an orchestration instance ID in the work item's runtime state. (Parameter 'workItem')    at DurableTask.Sidecar.Dispatcher.TaskOrchestrationDispatcher.ExecuteWorkItemAsync(TaskOrchestrationWorkItem workItem) in /root/src/DurableTask.Sidecar/Dispatcher/TaskOrchestrationDispatcher.cs:line 44    at DurableTask.Sidecar.Dispatcher.WorkItemDispatcher`1.ExecuteWorkItem(T workItem) in /root/src/DurableTask.Sidecar/Dispatcher/WorkItemDispatcher.cs:line 257
+```
+
 ## Supported patterns
 
 The following orchestration patterns are currently supported.

@@ -14,13 +14,13 @@ export function newOrchestrationState(
   let state = res.getOrchestrationstate();
   let failureDetails;
 
-  if (
-    state &&
-    (state?.getFailuredetails()?.getErrormessage() != "" || state.getFailuredetails()?.getErrortype() != "")
-  ) {
+  const failureDetailsErrorMessage = state?.getFailuredetails()?.getErrormessage();
+  const failureDetailsErrorType = state?.getFailuredetails()?.getErrortype();
+
+  if (state && failureDetailsErrorMessage && failureDetailsErrorType) {
     failureDetails = new FailureDetails(
-      state.getFailuredetails()?.getErrormessage() ?? "",
-      state.getFailuredetails()?.getErrortype() ?? "",
+      failureDetailsErrorMessage,
+      failureDetailsErrorType,
       state.getFailuredetails()?.getStacktrace()?.toString(),
     );
   }

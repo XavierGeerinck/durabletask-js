@@ -19,12 +19,14 @@ export class TaskHubGrpcWorker {
   private _registry: Registry;
   private _hostAddress: string;
   private _isRunning: boolean;
+  private _stub: stubs.TaskHubSidecarServiceClient | null;
 
   constructor(hostAddress?: string) {
     this._registry = new Registry();
-    this._hostAddress = hostAddress ?? "localhost:50001"; // @todo: get default host address
+    this._hostAddress = hostAddress ?? "localhost:4001";
     this._responseStream = null;
     this._isRunning = false;
+    this._stub = null;
   }
 
   /**
@@ -60,31 +62,35 @@ export class TaskHubGrpcWorker {
    * Therefore, we open the stream and simply listen through the eventemitter behind the scenes
    */
   async start(): Promise<void> {
-    const stub = new GrpcClient(this._hostAddress).stub;
+    const client = new GrpcClient(this._hostAddress);
 
     if (this._isRunning) {
       throw new Error("The worker is already running.");
     }
 
-    const stubHello = promisify(stub.hello);
-    console.log(stubHello);
-    await stubHello(new Empty());
+    // send a "Hello" message to the sidecar to ensure that it's listening
+    let prom = promisify(client.stub.hello.bind(client.stub));
+    await prom(new Empty());
 
-    // Open a stream to get the work items
+    // Stream work items from the sidecar
     const stubGetWorkItemsReq = new pb.GetWorkItemsRequest();
-    stub.getWorkItems(stubGetWorkItemsReq);
-    this._responseStream = stub.getWorkItems(stubGetWorkItemsReq);
+    this._stub = client.stub;
+    this._responseStream = client.stub.getWorkItems(stubGetWorkItemsReq);
 
     console.log(`Successfully connected to ${this._hostAddress}. Waiting for work items...`);
 
     // Wait for a work item to be received
     this._responseStream.on("data", (workItem: pb.WorkItem) => {
       if (workItem.hasOrchestratorrequest()) {
-        console.log(`Received "Orchestrator Request" work item`);
-        this._executeOrchestrator(workItem.getOrchestratorrequest() as any, stub);
+        console.log(
+          `Received "Orchestrator Request" work item with instance id '${workItem
+            ?.getOrchestratorrequest()
+            ?.getInstanceid()}'`,
+        );
+        this._executeOrchestrator(workItem.getOrchestratorrequest() as any, client.stub);
       } else if (workItem.hasActivityrequest()) {
         console.log(`Received "Activity Request" work item`);
-        this._executeActivity(workItem.getActivityrequest() as any, stub);
+        this._executeActivity(workItem.getActivityrequest() as any, client.stub);
       } else {
         console.log(`Received unknown work item`);
       }
@@ -110,11 +116,16 @@ export class TaskHubGrpcWorker {
       throw new Error("The worker is not running.");
     }
 
-    if (this._responseStream) {
-      this._responseStream.destroy();
-    }
+    this._responseStream?.cancel();
+    this._responseStream?.destroy();
+
+    this._stub?.close();
 
     this._isRunning = false;
+
+    // Wait a bit to let the async operations finish
+    // https://github.com/grpc/grpc-node/issues/1563#issuecomment-829483711
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   /**
@@ -124,6 +135,12 @@ export class TaskHubGrpcWorker {
     req: pb.OrchestratorRequest,
     stub: stubs.TaskHubSidecarServiceClient,
   ): Promise<void> {
+    const instanceId = req.getInstanceid();
+
+    if (!instanceId) {
+      throw new Error(`Could not execute the orchestrator as the instanceId was not provided (${instanceId})`);
+    }
+
     let res;
 
     try {
@@ -153,7 +170,7 @@ export class TaskHubGrpcWorker {
     }
 
     try {
-      const stubCompleteOrchestratorTask = promisify(stub.completeOrchestratorTask);
+      const stubCompleteOrchestratorTask = promisify(stub.completeOrchestratorTask.bind(stub));
       await stubCompleteOrchestratorTask(res);
     } catch (e: any) {
       console.error(`An error occurred while trying to complete instance '${req.getInstanceid()}': ${e?.message}`);
@@ -174,10 +191,15 @@ export class TaskHubGrpcWorker {
 
     try {
       const executor = new ActivityExecutor(this._registry);
-      const result = await executor.execute(req.getName(), req.getInput()?.toString() ?? "", req.getTaskid());
+      const result = await executor.execute(
+        instanceId,
+        req.getName(),
+        req.getTaskid(),
+        req.getInput()?.toString() ?? "",
+      );
 
       const s = new StringValue();
-      s.setValue(result ?? "");
+      s.setValue(result?.toString() ?? "");
 
       res = new pb.ActivityResponse();
       res.setInstanceid(instanceId);
@@ -195,7 +217,7 @@ export class TaskHubGrpcWorker {
     }
 
     try {
-      const stubCompleteActivityTask = promisify(stub.completeActivityTask);
+      const stubCompleteActivityTask = promisify(stub.completeActivityTask.bind(stub));
       await stubCompleteActivityTask(res);
     } catch (e: any) {
       console.error(
