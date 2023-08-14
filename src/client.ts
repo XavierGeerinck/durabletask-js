@@ -1,3 +1,5 @@
+import { StringValue } from "google-protobuf/google/protobuf/wrappers_pb";
+import { Timestamp } from "google-protobuf/google/protobuf/timestamp_pb";
 import * as pb from "./proto/orchestrator_service_pb";
 import * as stubs from "./proto/orchestrator_service_grpc_pb";
 import { TOrchestrator } from "./types/orchestrator.type";
@@ -18,7 +20,7 @@ export class TaskHubGrpcClient {
   }
 
   async scheduleNewOrchestration(
-    orchestrator: TOrchestrator<TInput, TOutput>,
+    orchestrator: TOrchestrator,
     input?: TInput,
     instanceId?: string,
     startAt?: Date,
@@ -28,8 +30,15 @@ export class TaskHubGrpcClient {
     const req = new pb.CreateInstanceRequest();
     req.setName(name);
     req.setInstanceid(instanceId ?? randomUUID());
-    req.setInput(input ? JSON.stringify(input) : undefined);
-    req.setScheduledstarttimestamp(startAt?.getTime());
+
+    const i = new StringValue();
+    i.setValue(JSON.stringify(input));
+
+    const ts = new Timestamp();
+    ts.fromDate(new Date(startAt?.getTime() ?? 0));
+
+    req.setInput(i);
+    req.setScheduledstarttimestamp(ts);
 
     console.log(`Starting new ${name} instance with ID = ${req.getInstanceid()}`);
 
@@ -101,7 +110,11 @@ export class TaskHubGrpcClient {
     const req = new pb.RaiseEventRequest();
     req.setInstanceid(instanceId);
     req.setName(eventName);
-    req.setInput(JSON.stringify(data));
+
+    const i = new StringValue();
+    i.setValue(JSON.stringify(data));
+
+    req.setInput(i);
 
     console.log(`Raising event '${eventName}' for instance '${instanceId}'`);
 
@@ -112,7 +125,11 @@ export class TaskHubGrpcClient {
   async terminateOrchestration(instanceId: string, output: any = null): Promise<void> {
     const req = new pb.TerminateRequest();
     req.setInstanceid(instanceId);
-    req.setOutput(JSON.stringify(output));
+
+    const i = new StringValue();
+    i.setValue(JSON.stringify(output));
+
+    req.setOutput(i);
 
     console.log(`Terminating '${instanceId}'`);
 

@@ -3,30 +3,30 @@ import { ActivityNotRegisteredError } from "./exception/activity-not-registered-
 import { Registry } from "./registry";
 
 export class ActivityExecutor {
-    private _registry: Registry;
+  private _registry: Registry;
 
-    constructor(registry: Registry) {
-        this._registry = registry;
+  constructor(registry: Registry) {
+    this._registry = registry;
+  }
+
+  public execute(orchestrationId: string, name: string, taskId: number, encodedInput?: string): string | undefined {
+    const fn = this._registry.getActivity(name);
+
+    if (!fn) {
+      throw new ActivityNotRegisteredError(`Activity function ${name} is not registered`);
     }
 
-    public execute(orchestrationId: string, name: string, taskId: number, encodedInput?: string): string | undefined {
-        const fn = this._registry.getActivity(name);
+    const activityInput = encodedInput ? JSON.parse(encodedInput) : undefined;
+    const ctx = new ActivityContext(orchestrationId, taskId);
 
-        if (!fn) {
-            throw new ActivityNotRegisteredError(`Activity function ${name} is not registered`);
-        }
+    // Execute the activity function
+    const activityOutput = fn(ctx, activityInput);
 
-        const activityInput = encodedInput ? JSON.parse(encodedInput) : undefined;
-        const ctx = new ActivityContext(orchestrationId, taskId);
+    // Return the output
+    const encodedOutput = activityOutput ? JSON.stringify(activityOutput) : undefined;
+    const chars = encodedOutput ? encodedOutput.length : 0;
+    console.log(`Activity ${name} completed with output ${encodedOutput} (${chars} chars)`);
 
-        // Execute the activity function
-        const activityOutput = fn(ctx, activityInput);
-
-        // Return the output
-        const encodedOutput = activityOutput ? JSON.stringify(activityOutput) : undefined;
-        const chars = encodedOutput ? encodedOutput.length : 0;
-        console.log(`Activity ${name} completed with output ${encodedOutput} (${chars} chars)`);
-
-        return encodedOutput;
-    }
+    return encodedOutput;
+  }
 }
